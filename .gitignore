@@ -2,6 +2,7 @@ data/
 *.pt
 *.pth
 checkpoints/
+checkpoints_sample_grid.png
 .ipynb_checkpoints/
 __pycache__/
 *.pyc
