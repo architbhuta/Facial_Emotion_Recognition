@@ -239,3 +239,53 @@ for epoch in range(2):
 
 assert losses[-1] < losses[0], "loss did not decrease on smoke test — check the training loop"
 print("smoke test passed: loss decreased")
+
+# %% [markdown]
+# ## 5. Full Training Run
+#
+# Trains the real model for 20 epochs, saves a checkpoint, and plots
+# loss/accuracy curves.
+
+# %%
+import os
+
+os.makedirs("checkpoints", exist_ok=True)
+
+train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
+val_loader = DataLoader(val_ds, batch_size=128)
+
+model = EmotionCNN().to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+criterion = nn.CrossEntropyLoss()
+
+EPOCHS = 20
+history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+
+for epoch in range(EPOCHS):
+    train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
+    val_loss, val_acc = evaluate(model, val_loader, criterion, device)
+    history["train_loss"].append(train_loss)
+    history["train_acc"].append(train_acc)
+    history["val_loss"].append(val_loss)
+    history["val_acc"].append(val_acc)
+    print(f"epoch {epoch+1}/{EPOCHS}: train_loss={train_loss:.3f} train_acc={train_acc:.3f} "
+          f"val_loss={val_loss:.3f} val_acc={val_acc:.3f}")
+
+torch.save(model.state_dict(), "checkpoints/model.pt")
+print("saved checkpoints/model.pt")
+
+# %%
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+axes[0].plot(history["train_loss"], label="train")
+axes[0].plot(history["val_loss"], label="val")
+axes[0].set_title("Loss")
+axes[0].legend()
+axes[1].plot(history["train_acc"], label="train")
+axes[1].plot(history["val_acc"], label="val")
+axes[1].set_title("Accuracy")
+axes[1].legend()
+plt.tight_layout()
+plt.savefig("checkpoints/training_curves.png")
+print("saved checkpoints/training_curves.png")
+
+assert history["val_acc"][-1] > history["val_acc"][0], "val accuracy did not improve over training"
