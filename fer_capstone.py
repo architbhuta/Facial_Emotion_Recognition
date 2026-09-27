@@ -289,3 +289,40 @@ plt.savefig("checkpoints/training_curves.png")
 print("saved checkpoints/training_curves.png")
 
 assert history["val_acc"][-1] > history["val_acc"][0], "val accuracy did not improve over training"
+
+# %% [markdown]
+# ## 6. Evaluation on Test Set
+#
+# Test accuracy, per-class precision/recall/F1, and a confusion matrix —
+# important given FER-2013's class imbalance (rare `disgust` class).
+
+# %%
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+
+test_loader = DataLoader(test_ds, batch_size=128)
+
+model.eval()
+all_preds, all_labels = [], []
+with torch.no_grad():
+    for images, labels in test_loader:
+        images = images.to(device)
+        preds = model(images).argmax(dim=1).cpu()
+        all_preds.extend(preds.tolist())
+        all_labels.extend(labels.tolist())
+
+test_acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+print(f"test accuracy: {test_acc:.3f}")
+assert 0.0 < test_acc < 1.0
+
+print(classification_report(all_labels, all_preds, target_names=EMOTIONS, zero_division=0))
+
+cm = confusion_matrix(all_labels, all_preds)
+plt.figure(figsize=(7, 6))
+sns.heatmap(cm, annot=True, fmt="d", xticklabels=EMOTIONS, yticklabels=EMOTIONS, cmap="Blues")
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.title(f"Confusion Matrix (test acc={test_acc:.3f})")
+plt.tight_layout()
+plt.savefig("checkpoints/confusion_matrix.png")
+print("saved checkpoints/confusion_matrix.png")
