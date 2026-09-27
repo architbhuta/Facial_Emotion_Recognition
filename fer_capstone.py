@@ -122,3 +122,60 @@ assert sample_img.shape == (1, 48, 48), sample_img.shape
 assert sample_img.dtype == torch.float32
 assert 0.0 <= sample_img.min() and sample_img.max() <= 1.0
 print("sample OK:", sample_img.shape, sample_img.dtype, sample_label)
+
+# %% [markdown]
+# ## 3. Model Definition
+#
+# A small CNN: three Conv-BatchNorm-ReLU blocks with max-pooling, then a
+# dropout + fully-connected classifier head over the 7 emotion classes.
+# `block3` is kept as a named submodule so Grad-CAM (Task 8) can hook it.
+
+# %%
+import torch.nn as nn
+
+
+class EmotionCNN(nn.Module):
+    def __init__(self, num_classes=7):
+        super().__init__()
+        self.block1 = nn.Sequential(
+            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+        )  # -> (32, 24, 24)
+        self.block2 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+        )  # -> (64, 12, 12)
+        self.block3 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+        )  # -> (128, 12, 12) -- Grad-CAM hooks this block's output
+        self.pool3 = nn.MaxPool2d(2)  # -> (128, 6, 6)
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.4),
+            nn.Linear(128 * 6 * 6, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.4),
+            nn.Linear(128, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.pool3(x)
+        x = torch.flatten(x, 1)
+        return self.classifier(x)
+
+
+# %%
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+try:
+    _probe = torch.zeros(2, 1, 48, 48, device=device)
+    EmotionCNN().to(device)(_probe)
+except RuntimeError as e:
+    print(f"mps backend errored ({e}); falling back to cpu")
+    device = torch.device("cpu")
+print("using device:", device)
+
+model = EmotionCNN().to(device)
+dummy = torch.randn(4, 1, 48, 48, device=device)
+out = model(dummy)
+print("output shape:", out.shape)
+assert out.shape == (4, 7)
