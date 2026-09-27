@@ -18,8 +18,8 @@ LABEL_TO_IDX = {name: i for i, name in enumerate(EMOTIONS)}
 def load_split(path):
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"{path} not found. Download it first — see README.md 'Data' section "
-            f"or docs/adr/0001-fer-capstone-stack.md."
+            f"{path} not found. Download it first — see the 'Data' section "
+            f"of README.md for the fetch commands."
         )
     with open(path, "rb") as f:
         records = pickle.load(f)
@@ -258,7 +258,7 @@ model = EmotionCNN().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.CrossEntropyLoss()
 
-EPOCHS = 20
+EPOCHS = 25
 history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
 for epoch in range(EPOCHS):
@@ -391,24 +391,53 @@ def resize_map(arr_2d, size=(48, 48)):
     return np.array(img, dtype=np.float32) / 255.0
 
 
+model.eval()
 gradcam = GradCAM(model, model.block3)
+
+
+def find_sample_to_explain(emotion_idx):
+    """Prefer a sample the model actually classifies correctly for this
+    class (matches the spec's intent); fall back to the first sample of
+    the class, labelled with both true and predicted emotion, if the
+    model never predicts this class at all (e.g. `disgust`, see the
+    known-limitation note above)."""
+    class_indices = np.where(test_ds.labels == emotion_idx)[0]
+    for idx in class_indices:
+        img_tensor, label = test_ds[int(idx)]
+        input_tensor = img_tensor.unsqueeze(0).to(device)
+        with torch.no_grad():
+            pred = model(input_tensor).argmax(dim=1).item()
+        if pred == label:
+            return int(idx), img_tensor, label, pred
+    idx = int(class_indices[0])
+    img_tensor, label = test_ds[idx]
+    input_tensor = img_tensor.unsqueeze(0).to(device)
+    with torch.no_grad():
+        pred = model(input_tensor).argmax(dim=1).item()
+    return idx, img_tensor, label, pred
+
 
 fig, axes = plt.subplots(3, 7, figsize=(16, 7))
 for col, emotion_idx in enumerate(range(7)):
-    sample_idx = int(np.where(test_ds.labels == emotion_idx)[0][0])
-    img_tensor, label = test_ds[sample_idx]
+    sample_idx, img_tensor, label, pred = find_sample_to_explain(emotion_idx)
     input_tensor = img_tensor.unsqueeze(0).to(device)
+    target_idx = pred  # explain the model's actual decision, not the ground truth it may have missed
 
-    cam = gradcam.generate(input_tensor, class_idx=label)
+    cam = gradcam.generate(input_tensor, class_idx=target_idx)
+    assert np.isfinite(cam).all() and cam.std() > 1e-6, (
+        f"Grad-CAM heatmap is degenerate/non-finite for {EMOTIONS[emotion_idx]}"
+    )
     cam_resized = resize_map(cam)
-    assert cam_resized.std() > 1e-6, f"Grad-CAM heatmap is degenerate for {EMOTIONS[emotion_idx]}"
 
-    saliency = compute_saliency(model, input_tensor, class_idx=label)
-    assert saliency.std() > 1e-6, f"saliency map is degenerate for {EMOTIONS[emotion_idx]}"
+    saliency = compute_saliency(model, input_tensor, class_idx=target_idx)
+    assert np.isfinite(saliency).all() and saliency.std() > 1e-6, (
+        f"saliency map is degenerate/non-finite for {EMOTIONS[emotion_idx]}"
+    )
 
     face = img_tensor[0].numpy()
+    title = EMOTIONS[emotion_idx] if pred == label else f"true:{EMOTIONS[label]}\npred:{EMOTIONS[pred]}"
     axes[0, col].imshow(face, cmap="gray")
-    axes[0, col].set_title(EMOTIONS[emotion_idx], fontsize=9)
+    axes[0, col].set_title(title, fontsize=9)
     axes[0, col].axis("off")
     axes[1, col].imshow(face, cmap="gray")
     axes[1, col].imshow(cam_resized, cmap="jet", alpha=0.5)
