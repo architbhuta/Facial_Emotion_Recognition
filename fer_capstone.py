@@ -63,3 +63,62 @@ for emotion_idx, ax in enumerate(axes):
 plt.tight_layout()
 plt.savefig("checkpoints_sample_grid.png")
 print("saved checkpoints_sample_grid.png")
+
+# %% [markdown]
+# ## 2. Dataset Class, Augmentation, Train/Val Split
+#
+# Wraps the numpy arrays in a `torch.utils.data.Dataset`, applies data
+# augmentation (flip/rotation/translation) only to the training split, and
+# carves a validation set out of the training data.
+
+# %%
+import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
+
+torch.manual_seed(42)
+np.random.seed(42)
+
+
+class FERDataset(Dataset):
+    def __init__(self, images, labels, transform=None):
+        self.images = images
+        self.labels = labels
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        img = torch.from_numpy(self.images[idx]).float().div(255.0).unsqueeze(0)  # (1, 48, 48)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, int(self.labels[idx])
+
+
+train_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(10),
+    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+])
+
+# %%
+rng = np.random.default_rng(42)
+n = len(train_labels)
+perm = rng.permutation(n)
+val_size = int(0.1 * n)
+val_idx, train_idx = perm[:val_size], perm[val_size:]
+
+train_ds = FERDataset(train_images[train_idx], train_labels[train_idx], transform=train_transform)
+val_ds = FERDataset(train_images[val_idx], train_labels[val_idx], transform=None)
+test_ds = FERDataset(test_images, test_labels, transform=None)
+
+print("train_ds:", len(train_ds), "val_ds:", len(val_ds), "test_ds:", len(test_ds))
+assert len(train_ds) + len(val_ds) == n
+assert len(test_ds) == 7178
+
+sample_img, sample_label = train_ds[0]
+assert sample_img.shape == (1, 48, 48), sample_img.shape
+assert sample_img.dtype == torch.float32
+assert 0.0 <= sample_img.min() and sample_img.max() <= 1.0
+print("sample OK:", sample_img.shape, sample_img.dtype, sample_label)
