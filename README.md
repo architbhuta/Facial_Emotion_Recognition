@@ -13,7 +13,7 @@ emotions, with Grad-CAM/saliency-map explainability.
 Open and run `FER_Capstone.ipynb` top to bottom (Jupyter). Or regenerate
 it from source after editing `fer_capstone.py`:
 
-    jupytext --to notebook fer_capstone.py
+    jupytext --to notebook -o FER_Capstone.ipynb fer_capstone.py
 
 ## Data
 

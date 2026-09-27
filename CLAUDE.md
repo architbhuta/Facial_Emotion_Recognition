@@ -22,7 +22,9 @@ One-night coursework capstone. See:
   push past this unless the user asks for it.
 - **`fer_capstone.py` (jupytext) is the source of truth; `FER_Capstone.ipynb`
   is the generated deliverable.** Edit the `.py`, then regenerate/re-sync
-  the notebook with `jupytext --to notebook fer_capstone.py` — don't hand-edit
+  the notebook with `jupytext --to notebook -o FER_Capstone.ipynb fer_capstone.py`
+  (the `-o` matters — without it jupytext writes `fer_capstone.ipynb`,
+  lowercase, a second file) — don't hand-edit
   the `.ipynb` JSON directly.
 - **Class index mapping is fixed:** alphabetical
   `["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]` →
