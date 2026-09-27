@@ -326,3 +326,99 @@ plt.title(f"Confusion Matrix (test acc={test_acc:.3f})")
 plt.tight_layout()
 plt.savefig("checkpoints/confusion_matrix.png")
 print("saved checkpoints/confusion_matrix.png")
+
+# %% [markdown]
+# ## 7. Explainability — Grad-CAM and Saliency Maps
+#
+# Grad-CAM (via a hook on `model.block3`, the last conv block) and a
+# vanilla input-gradient saliency map, for one sample per emotion class.
+#
+# **Known limitation:** the classification report above shows the model
+# never predicts `disgust` (0.00 precision/recall) — it is the rarest
+# class by far (~1.7% of training data). This is an expected consequence
+# of FER-2013's class imbalance for a simple CNN with no class weighting
+# or resampling, not a bug in the pipeline (see ADR 0001, out of scope to
+# fix here).
+
+# %%
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.activations = None
+        self.gradients = None
+        target_layer.register_forward_hook(self._save_activation)
+        target_layer.register_full_backward_hook(self._save_gradient)
+
+    def _save_activation(self, module, input, output):
+        self.activations = output.detach()
+
+    def _save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0].detach()
+
+    def generate(self, input_tensor, class_idx):
+        self.model.zero_grad()
+        output = self.model(input_tensor)
+        score = output[0, class_idx]
+        score.backward()
+        weights = self.gradients.mean(dim=(2, 3), keepdim=True)
+        cam = torch.relu((weights * self.activations).sum(dim=1, keepdim=True))
+        cam = cam[0, 0]
+        cam = cam - cam.min()
+        if cam.max() > 0:
+            cam = cam / cam.max()
+        return cam.cpu().numpy()
+
+
+def compute_saliency(model, input_tensor, class_idx):
+    input_tensor = input_tensor.clone().requires_grad_(True)
+    model.zero_grad()
+    output = model(input_tensor)
+    score = output[0, class_idx]
+    score.backward()
+    saliency = input_tensor.grad.abs()[0, 0]
+    saliency = saliency - saliency.min()
+    if saliency.max() > 0:
+        saliency = saliency / saliency.max()
+    return saliency.detach().cpu().numpy()
+
+# %%
+from PIL import Image as PILImage
+
+
+def resize_map(arr_2d, size=(48, 48)):
+    img = PILImage.fromarray((arr_2d * 255).astype(np.uint8))
+    img = img.resize(size, PILImage.BILINEAR)
+    return np.array(img, dtype=np.float32) / 255.0
+
+
+gradcam = GradCAM(model, model.block3)
+
+fig, axes = plt.subplots(3, 7, figsize=(16, 7))
+for col, emotion_idx in enumerate(range(7)):
+    sample_idx = int(np.where(test_ds.labels == emotion_idx)[0][0])
+    img_tensor, label = test_ds[sample_idx]
+    input_tensor = img_tensor.unsqueeze(0).to(device)
+
+    cam = gradcam.generate(input_tensor, class_idx=label)
+    cam_resized = resize_map(cam)
+    assert cam_resized.std() > 1e-6, f"Grad-CAM heatmap is degenerate for {EMOTIONS[emotion_idx]}"
+
+    saliency = compute_saliency(model, input_tensor, class_idx=label)
+    assert saliency.std() > 1e-6, f"saliency map is degenerate for {EMOTIONS[emotion_idx]}"
+
+    face = img_tensor[0].numpy()
+    axes[0, col].imshow(face, cmap="gray")
+    axes[0, col].set_title(EMOTIONS[emotion_idx], fontsize=9)
+    axes[0, col].axis("off")
+    axes[1, col].imshow(face, cmap="gray")
+    axes[1, col].imshow(cam_resized, cmap="jet", alpha=0.5)
+    axes[1, col].axis("off")
+    axes[2, col].imshow(saliency, cmap="hot")
+    axes[2, col].axis("off")
+
+axes[0, 0].set_ylabel("input", fontsize=9)
+axes[1, 0].set_ylabel("Grad-CAM", fontsize=9)
+axes[2, 0].set_ylabel("saliency", fontsize=9)
+plt.tight_layout()
+plt.savefig("checkpoints/explainability.png")
+print("saved checkpoints/explainability.png")
