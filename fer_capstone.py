@@ -179,3 +179,63 @@ dummy = torch.randn(4, 1, 48, 48, device=device)
 out = model(dummy)
 print("output shape:", out.shape)
 assert out.shape == (4, 7)
+
+# %% [markdown]
+# ## 4. Training / Evaluation Functions
+#
+# Standard train/eval epoch loops, smoke-tested on a small subset before
+# committing to the full run in the next section.
+
+# %%
+from torch.utils.data import DataLoader
+
+
+def train_one_epoch(model, loader, optimizer, criterion, device):
+    model.train()
+    total_loss, correct, total = 0.0, 0, 0
+    for images, labels in loader:
+        images, labels = images.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item() * images.size(0)
+        correct += (outputs.argmax(dim=1) == labels).sum().item()
+        total += images.size(0)
+    return total_loss / total, correct / total
+
+
+@torch.no_grad()
+def evaluate(model, loader, criterion, device):
+    model.eval()
+    total_loss, correct, total = 0.0, 0, 0
+    for images, labels in loader:
+        images, labels = images.to(device), labels.to(device)
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        total_loss += loss.item() * images.size(0)
+        correct += (outputs.argmax(dim=1) == labels).sum().item()
+        total += images.size(0)
+    return total_loss / total, correct / total
+
+
+# %%
+smoke_train = torch.utils.data.Subset(train_ds, range(500))
+smoke_val = torch.utils.data.Subset(val_ds, range(100))
+smoke_train_loader = DataLoader(smoke_train, batch_size=32, shuffle=True)
+smoke_val_loader = DataLoader(smoke_val, batch_size=32)
+
+smoke_model = EmotionCNN().to(device)
+smoke_optimizer = torch.optim.Adam(smoke_model.parameters(), lr=1e-3)
+smoke_criterion = nn.CrossEntropyLoss()
+
+losses = []
+for epoch in range(2):
+    loss, acc = train_one_epoch(smoke_model, smoke_train_loader, smoke_optimizer, smoke_criterion, device)
+    val_loss, val_acc = evaluate(smoke_model, smoke_val_loader, smoke_criterion, device)
+    losses.append(loss)
+    print(f"[smoke] epoch {epoch}: train_loss={loss:.3f} train_acc={acc:.3f} val_loss={val_loss:.3f} val_acc={val_acc:.3f}")
+
+assert losses[-1] < losses[0], "loss did not decrease on smoke test — check the training loop"
+print("smoke test passed: loss decreased")
